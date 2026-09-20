@@ -1,0 +1,1012 @@
+local Players = game:GetService("Players")
+local TweenService = game:GetService("TweenService")
+local RunService = game:GetService("RunService")
+local Workspace = game:GetService("Workspace")
+local UserInputService = game:GetService("UserInputService")
+local Lighting = game:GetService("Lighting")
+
+local player = Players.LocalPlayer
+local playerGui = player:WaitForChild("PlayerGui", 10)
+
+if not playerGui then return end
+
+if playerGui:FindFirstChild("KieuLuongTamHubGui") then
+    playerGui.KieuLuongTamHubGui:Destroy()
+end
+
+local state = {
+    antiGrab = false,
+    chongBiVang = false,
+    autoGrab = false,
+    airWalk = false,
+    fov120 = false,
+    skyLaunch = false,
+    flyCam = false,
+    fighterJet = false,
+    zeroGravityParts = false,
+    speedBoost = false,
+    jumpBoost = false,
+    showFps = false,
+    noclip = false,
+    esp = false,
+    fullbright = false,
+    fixLag = false
+}
+
+local speedValue = 50
+local jumpValue = 100
+local jetSpeed = 3.0 -- Tốc độ Fighter Jet mặc định
+local camera = Workspace.CurrentCamera
+local airPlatform = nil
+
+-- LƯU TRỮ CÀI ĐẶT LIGHTING GỐC
+local originalAmbient = Lighting.Ambient
+local originalOutdoorAmbient = Lighting.OutdoorAmbient
+local originalBrightness = Lighting.Brightness
+local originalFogEnd = Lighting.FogEnd
+local originalGlobalShadows = Lighting.GlobalShadows
+
+-- FLYCAM VARIABLES
+local flyCamConnection = nil
+local flyCamInputConnection = nil
+local flyCamSpeed = 2.0
+local camCFrame = camera.CFrame
+local isRightMouseDown = false
+local lastTouchPos = Vector2.new()
+local rotX, rotY = 0, 0
+local isMobile = UserInputService.TouchEnabled
+
+-- FIGHTER JET VARIABLES
+local jetConnection = nil
+local jetInputConnection = nil
+local jetCFrame = camera.CFrame
+local jetRotX, jetRotY = 0, 0
+
+local moveState = {
+    forward = false, backward = false, left = false, right = false, up = false, down = false
+}
+
+local disableFlyCam, disableFighterJet
+
+-- SCREEN GUI
+local screenGui = Instance.new("ScreenGui")
+screenGui.Name = "KieuLuongTamHubGui"
+screenGui.ResetOnSpawn = false
+screenGui.DisplayOrder = 999
+screenGui.Parent = playerGui
+
+-- MAIN FRAME
+local mainFrame = Instance.new("Frame")
+mainFrame.Size = UDim2.new(0, 520, 0, 320)
+mainFrame.Position = UDim2.new(0.5, -260, 0.5, -160)
+mainFrame.BackgroundColor3 = Color3.fromRGB(10, 10, 15)
+mainFrame.BackgroundTransparency = 0.45
+mainFrame.BorderSizePixel = 0
+mainFrame.Visible = false
+mainFrame.Active = true
+mainFrame.Draggable = true
+mainFrame.Parent = screenGui
+
+local frameCorner = Instance.new("UICorner") 
+frameCorner.CornerRadius = UDim.new(0, 10) 
+frameCorner.Parent = mainFrame
+
+-- VIỀN HUB 7 SẮC CẦU VỒNG
+local frameStroke = Instance.new("UIStroke")
+frameStroke.Color = Color3.fromRGB(255, 0, 0)
+frameStroke.Transparency = 0.1
+frameStroke.Thickness = 2
+frameStroke.Parent = mainFrame
+
+-- TITLE BAR
+local titleLabel = Instance.new("TextLabel")
+titleLabel.Size = UDim2.new(1, -20, 0, 35)
+titleLabel.Position = UDim2.new(0, 15, 0, 5)
+titleLabel.BackgroundTransparency = 1
+titleLabel.TextColor3 = Color3.fromRGB(255, 0, 0)
+titleLabel.Text = "🌈 Kiều Lương Tâm Hub 🌈"
+titleLabel.Font = Enum.Font.SourceSansBold
+titleLabel.TextSize = 16
+titleLabel.TextXAlignment = Enum.TextXAlignment.Left
+titleLabel.Parent = mainFrame
+
+-- HIỆU ỨNG CẦU VỒNG VIỀN HUB
+local hue = 0
+RunService.RenderStepped:Connect(function()
+    hue = (hue + 0.005) % 1
+    local rainbowColor = Color3.fromHSV(hue, 1, 1)
+    frameStroke.Color = rainbowColor
+    titleLabel.TextColor3 = rainbowColor
+end)
+
+-- TÂM MÁY BAY CHIẾN ĐẤU (FIGHTER JET CROSSHAIR HUD)
+local jetCrosshair = Instance.new("Frame")
+jetCrosshair.Size = UDim2.new(0, 80, 0, 80)
+jetCrosshair.Position = UDim2.new(0.5, -40, 0.5, -40)
+jetCrosshair.BackgroundTransparency = 1
+jetCrosshair.Visible = false
+jetCrosshair.Parent = screenGui
+
+-- Vòng tròn trung tâm
+local centerCircle = Instance.new("Frame")
+centerCircle.Size = UDim2.new(0, 40, 0, 40)
+centerCircle.Position = UDim2.new(0.5, -20, 0.5, -20)
+centerCircle.BackgroundTransparency = 1
+centerCircle.Parent = jetCrosshair
+local circleStroke = Instance.new("UIStroke")
+circleStroke.Color = Color3.fromRGB(0, 255, 100)
+circleStroke.Thickness = 1.5
+circleStroke.Parent = centerCircle
+local circleCorner = Instance.new("UICorner")
+circleCorner.CornerRadius = UDim.new(1, 0)
+circleCorner.Parent = centerCircle
+
+-- Chấm nhỏ chính giữa
+local centerDot = Instance.new("Frame")
+centerDot.Size = UDim2.new(0, 4, 0, 4)
+centerDot.Position = UDim2.new(0.5, -2, 0.5, -2)
+centerDot.BackgroundColor3 = Color3.fromRGB(0, 255, 100)
+centerDot.BorderSizePixel = 0
+centerDot.Parent = jetCrosshair
+local dotCorner = Instance.new("UICorner") dotCorner.CornerRadius = UDim.new(1, 0) dotCorner.Parent = centerDot
+
+-- 2 vạch ngang cánh máy bay
+local leftWing = Instance.new("Frame")
+leftWing.Size = UDim2.new(0, 20, 0, 2)
+leftWing.Position = UDim2.new(0, 0, 0.5, -1)
+leftWing.BackgroundColor3 = Color3.fromRGB(0, 255, 100)
+leftWing.BorderSizePixel = 0
+leftWing.Parent = jetCrosshair
+
+local rightWing = Instance.new("Frame")
+rightWing.Size = UDim2.new(0, 20, 0, 2)
+rightWing.Position = UDim2.new(1, -20, 0.5, -1)
+rightWing.BackgroundColor3 = Color3.fromRGB(0, 255, 100)
+rightWing.BorderSizePixel = 0
+rightWing.Parent = jetCrosshair
+
+-- Vạch căn độ cao thẳng đứng
+local topBar = Instance.new("Frame")
+topBar.Size = UDim2.new(0, 2, 0, 12)
+topBar.Position = UDim2.new(0.5, -1, 0, 2)
+topBar.BackgroundColor3 = Color3.fromRGB(0, 255, 100)
+topBar.BorderSizePixel = 0
+topBar.Parent = jetCrosshair
+
+-- KHUNG FPS
+local fpsWidget = Instance.new("Frame")
+fpsWidget.Size = UDim2.new(0, 90, 0, 28)
+fpsWidget.Position = UDim2.new(0.02, 0, 0.05, 0)
+fpsWidget.BackgroundColor3 = Color3.fromRGB(15, 15, 20)
+fpsWidget.BackgroundTransparency = 0.35
+fpsWidget.Active = true
+fpsWidget.Draggable = true
+fpsWidget.Visible = false
+fpsWidget.Parent = screenGui
+
+local fpsWidgetCorner = Instance.new("UICorner") fpsWidgetCorner.CornerRadius = UDim.new(0, 6) fpsWidgetCorner.Parent = fpsWidget
+local fpsWidgetStroke = Instance.new("UIStroke") fpsWidgetStroke.Color = Color3.fromRGB(0, 255, 200) fpsWidgetStroke.Transparency = 0.4 fpsWidgetStroke.Thickness = 1.5 fpsWidgetStroke.Parent = fpsWidget
+
+local fpsDisplayLabel = Instance.new("TextLabel")
+fpsDisplayLabel.Size = UDim2.new(1, 0, 1, 0)
+fpsDisplayLabel.BackgroundTransparency = 1
+fpsDisplayLabel.TextColor3 = Color3.fromRGB(0, 255, 200)
+fpsDisplayLabel.Text = "FPS: 60"
+fpsDisplayLabel.Font = Enum.Font.SourceSansBold
+fpsDisplayLabel.TextSize = 12
+fpsDisplayLabel.Parent = fpsWidget
+
+local frameCount = 0
+local lastFpsUpdate = tick()
+
+RunService.RenderStepped:Connect(function()
+    frameCount = frameCount + 1
+    local currentTime = tick()
+    if currentTime - lastFpsUpdate >= 0.5 then
+        local currentFps = math.floor(frameCount / (currentTime - lastFpsUpdate))
+        fpsDisplayLabel.Text = "⚡ FPS: " .. tostring(currentFps)
+        frameCount = 0
+        lastFpsUpdate = currentTime
+    end
+end)
+
+-- SIDEBAR
+local sidebar = Instance.new("Frame")
+sidebar.Size = UDim2.new(0, 130, 1, -50)
+sidebar.Position = UDim2.new(0, 10, 0, 40)
+sidebar.BackgroundColor3 = Color3.fromRGB(10, 10, 15)
+sidebar.BackgroundTransparency = 0.55
+sidebar.Parent = mainFrame
+
+local sideCorner = Instance.new("UICorner") sideCorner.CornerRadius = UDim.new(0, 8) sideCorner.Parent = sidebar
+local sideLayout = Instance.new("UIListLayout") sideLayout.SortOrder = Enum.SortOrder.LayoutOrder sideLayout.Padding = UDim.new(0, 4) sideLayout.Parent = sidebar
+local sidePadding = Instance.new("UIPadding") sidePadding.PaddingTop = UDim.new(0, 5) sidePadding.PaddingLeft = UDim.new(0, 5) sidePadding.PaddingRight = UDim.new(0, 5) sidePadding.Parent = sidebar
+
+-- CONTENT AREA
+local contentArea = Instance.new("Frame")
+contentArea.Size = UDim2.new(1, -160, 1, -50)
+contentArea.Position = UDim2.new(0, 150, 0, 40)
+contentArea.BackgroundTransparency = 1
+contentArea.Parent = mainFrame
+
+-- TOGGLE BUTTON
+local toggleButton = Instance.new("TextButton")
+toggleButton.Size = UDim2.new(0, 100, 0, 32)
+toggleButton.Position = UDim2.new(0.02, 0, 0.2, 0)
+toggleButton.BackgroundColor3 = Color3.fromRGB(20, 20, 25)
+toggleButton.BackgroundTransparency = 0.2
+toggleButton.TextColor3 = Color3.fromRGB(0, 255, 200)
+toggleButton.Text = "⚡ Open Hub"
+toggleButton.Font = Enum.Font.SourceSansBold
+toggleButton.TextSize = 13
+toggleButton.Active = true
+toggleButton.Draggable = true
+toggleButton.Parent = screenGui
+local toggleCorner = Instance.new("UICorner") toggleCorner.CornerRadius = UDim.new(0, 8) toggleCorner.Parent = toggleButton
+
+toggleButton.MouseButton1Click:Connect(function()
+    mainFrame.Visible = not mainFrame.Visible
+    toggleButton.Text = mainFrame.Visible and "⚡ Close Hub" or "⚡ Open Hub"
+end)
+
+-- QUICK TP BUTTON
+local quickTpBtn = Instance.new("TextButton")
+quickTpBtn.Size = UDim2.new(0, 110, 0, 35)
+quickTpBtn.Position = UDim2.new(0.5, -55, 0.1, 0)
+quickTpBtn.BackgroundColor3 = Color3.fromRGB(255, 170, 0)
+quickTpBtn.BackgroundTransparency = 0.2
+quickTpBtn.TextColor3 = Color3.fromRGB(0, 0, 0)
+quickTpBtn.Text = "📍 TP To Cam"
+quickTpBtn.Font = Enum.Font.SourceSansBold
+quickTpBtn.TextSize = 13
+quickTpBtn.Visible = false
+quickTpBtn.Parent = screenGui
+local tpCorner = Instance.new("UICorner") tpCorner.CornerRadius = UDim.new(0, 8) tpCorner.Parent = quickTpBtn
+
+quickTpBtn.MouseButton1Click:Connect(function()
+    local char = player.Character
+    if char and char:FindFirstChild("HumanoidRootPart") then
+        char.HumanoidRootPart.CFrame = camera.CFrame
+        if disableFlyCam then disableFlyCam() end
+        if disableFighterJet then disableFighterJet() end
+    end
+end)
+
+-- MOBILE CONTROLS
+local mobileControls = Instance.new("Frame")
+mobileControls.Size = UDim2.new(1, 0, 1, 0)
+mobileControls.BackgroundTransparency = 1
+mobileControls.Visible = false
+mobileControls.Parent = screenGui
+
+local function bindTouchButton(btn, directionKey)
+    btn.InputBegan:Connect(function(input)
+        if input.UserInputType == Enum.UserInputType.Touch or input.UserInputType == Enum.UserInputType.MouseButton1 then
+            moveState[directionKey] = true
+        end
+    end)
+    btn.InputEnded:Connect(function(input)
+        if input.UserInputType == Enum.UserInputType.Touch or input.UserInputType == Enum.UserInputType.MouseButton1 then
+            moveState[directionKey] = false
+        end
+    end)
+end
+
+local function makeControlBtn(text, pos, size, bgCol)
+    local btn = Instance.new("TextButton")
+    btn.Size = size
+    btn.Position = pos
+    btn.BackgroundColor3 = bgCol
+    btn.BackgroundTransparency = 0.4
+    btn.Text = text
+    btn.TextSize = 13
+    btn.Font = Enum.Font.SourceSansBold
+    btn.TextColor3 = Color3.fromRGB(255, 255, 255)
+    btn.Parent = mobileControls
+    local corner = Instance.new("UICorner") corner.CornerRadius = UDim.new(0, 8) corner.Parent = btn
+    return btn
+end
+
+local btnFwd = makeControlBtn("▲\nTIẾN", UDim2.new(0.12, 0, 0.65, 0), UDim2.new(0, 50, 0, 50), Color3.fromRGB(40, 40, 60))
+local btnBwd = makeControlBtn("▼\nLÙI", UDim2.new(0.12, 0, 0.81, 0), UDim2.new(0, 50, 0, 50), Color3.fromRGB(40, 40, 60))
+local btnLeft = makeControlBtn("◄", UDim2.new(0.04, 0, 0.73, 0), UDim2.new(0, 50, 0, 50), Color3.fromRGB(40, 40, 60))
+local btnRight = makeControlBtn("►", UDim2.new(0.20, 0, 0.73, 0), UDim2.new(0, 50, 0, 50), Color3.fromRGB(40, 40, 60))
+local btnUp = makeControlBtn("▲\nLÊN", UDim2.new(0.85, 0, 0.65, 0), UDim2.new(0, 55, 0, 55), Color3.fromRGB(0, 200, 150))
+local btnDown = makeControlBtn("▼\nXUỐNG", UDim2.new(0.85, 0, 0.79, 0), UDim2.new(0, 55, 0, 55), Color3.fromRGB(200, 60, 60))
+
+bindTouchButton(btnFwd, "forward")
+bindTouchButton(btnBwd, "backward")
+bindTouchButton(btnLeft, "left")
+bindTouchButton(btnRight, "right")
+bindTouchButton(btnUp, "up")
+bindTouchButton(btnDown, "down")
+
+-- CONTAINER SETUP
+local function createContainer()
+    local container = Instance.new("ScrollingFrame")
+    container.Size = UDim2.new(1, 0, 1, 0)
+    container.BackgroundTransparency = 1
+    container.BorderSizePixel = 0
+    container.ScrollBarThickness = 3
+    container.CanvasSize = UDim2.new(0, 0, 0, 0)
+    container.Visible = false
+    container.Parent = contentArea
+    
+    local layout = Instance.new("UIListLayout")
+    layout.SortOrder = Enum.SortOrder.LayoutOrder
+    layout.Padding = UDim.new(0, 6)
+    layout.Parent = container
+    
+    layout:GetPropertyChangedSignal("AbsoluteContentSize"):Connect(function()
+        container.CanvasSize = UDim2.new(0, 0, 0, layout.AbsoluteContentSize.Y + 10)
+    end)
+    return container
+end
+
+local visualContent = createContainer()
+local defenseContent = createContainer()
+local attackContent = createContainer()
+local playerContent = createContainer()
+
+-- SIDE TAB BUTTONS
+local tabButtons = {}
+local function createSideTabBtn(text)
+    local btn = Instance.new("TextButton")
+    btn.Size = UDim2.new(1, 0, 0, 32)
+    btn.BackgroundColor3 = Color3.fromRGB(25, 25, 35)
+    btn.BackgroundTransparency = 0.5
+    btn.TextColor3 = Color3.fromRGB(180, 180, 180)
+    btn.Text = text
+    btn.Font = Enum.Font.SourceSansBold
+    btn.TextSize = 13
+    btn.Parent = sidebar
+    
+    local corner = Instance.new("UICorner") corner.CornerRadius = UDim.new(0, 6) corner.Parent = btn
+    table.insert(tabButtons, btn)
+    return btn
+end
+
+local visualTabBtn = createSideTabBtn("Visual / Move")
+local defenseTabBtn = createSideTabBtn("Defense")
+local attackTabBtn = createSideTabBtn("Attack")
+local playersTabBtn = createSideTabBtn("Players")
+
+local function switchTab(activeContent, activeBtn)
+    visualContent.Visible = false
+    defenseContent.Visible = false
+    attackContent.Visible = false
+    playerContent.Visible = false
+    
+    for _, btn in ipairs(tabButtons) do
+        btn.TextColor3 = Color3.fromRGB(180, 180, 180)
+        btn.BackgroundTransparency = 0.5
+    end
+    
+    activeContent.Visible = true
+    activeBtn.TextColor3 = Color3.fromRGB(0, 255, 200)
+    activeBtn.BackgroundTransparency = 0.2
+end
+
+visualTabBtn.MouseButton1Click:Connect(function() switchTab(visualContent, visualTabBtn) end)
+defenseTabBtn.MouseButton1Click:Connect(function() switchTab(defenseContent, defenseTabBtn) end)
+attackTabBtn.MouseButton1Click:Connect(function() switchTab(attackContent, attackTabBtn) end)
+
+switchTab(visualContent, visualTabBtn)
+
+-- HELPERS
+local function createToggleBtn(text, parent, callback)
+    local btn = Instance.new("TextButton")
+    btn.Size = UDim2.new(1, -5, 0, 32)
+    btn.BackgroundColor3 = Color3.fromRGB(25, 25, 35)
+    btn.BackgroundTransparency = 0.4
+    btn.TextColor3 = Color3.fromRGB(255, 255, 255)
+    btn.Text = text .. ": OFF"
+    btn.Font = Enum.Font.SourceSansBold
+    btn.TextSize = 12
+    btn.Parent = parent
+
+    local corner = Instance.new("UICorner") corner.CornerRadius = UDim.new(0, 6) corner.Parent = btn
+
+    local active = false
+    btn.MouseButton1Click:Connect(function()
+        active = not active
+        btn.Text = text .. (active and ": ON" or ": OFF")
+        btn.TextColor3 = active and Color3.fromRGB(0, 255, 200) or Color3.fromRGB(255, 255, 255)
+        callback(active, btn)
+    end)
+    return btn
+end
+
+local function createSlider(title, parent, min, max, default, callback)
+    local frame = Instance.new("Frame")
+    frame.Size = UDim2.new(1, -5, 0, 42)
+    frame.BackgroundColor3 = Color3.fromRGB(25, 25, 35)
+    frame.BackgroundTransparency = 0.4
+    frame.Parent = parent
+    local corner = Instance.new("UICorner") corner.CornerRadius = UDim.new(0, 6) corner.Parent = frame
+
+    local label = Instance.new("TextLabel")
+    label.Size = UDim2.new(1, -10, 0, 18)
+    label.Position = UDim2.new(0, 5, 0, 2)
+    label.BackgroundTransparency = 1
+    label.TextColor3 = Color3.fromRGB(255, 255, 255)
+    label.Text = title .. ": " .. tostring(default)
+    label.Font = Enum.Font.SourceSansBold
+    label.TextSize = 11
+    label.TextXAlignment = Enum.TextXAlignment.Left
+    label.Parent = frame
+
+    local sliderBg = Instance.new("Frame")
+    sliderBg.Size = UDim2.new(1, -20, 0, 8)
+    sliderBg.Position = UDim2.new(0, 10, 0, 24)
+    sliderBg.BackgroundColor3 = Color3.fromRGB(40, 40, 50)
+    sliderBg.Parent = frame
+    local sCorner = Instance.new("UICorner") sCorner.CornerRadius = UDim.new(1, 0) sCorner.Parent = sliderBg
+
+    local fill = Instance.new("Frame")
+    fill.Size = UDim2.new((default - min)/(max - min), 0, 1, 0)
+    fill.BackgroundColor3 = Color3.fromRGB(0, 255, 200)
+    fill.Parent = sliderBg
+    local fCorner = Instance.new("UICorner") fCorner.CornerRadius = UDim.new(1, 0) fCorner.Parent = fill
+
+    local dragging = false
+    local function update(input)
+        local pos = math.clamp((input.Position.X - sliderBg.AbsolutePosition.X) / sliderBg.AbsoluteSize.X, 0, 1)
+        local val = math.floor(min + (max - min) * pos)
+        fill.Size = UDim2.new(pos, 0, 1, 0)
+        label.Text = title .. ": " .. tostring(val)
+        callback(val)
+    end
+
+    sliderBg.InputBegan:Connect(function(input)
+        if input.UserInputType == Enum.UserInputType.MouseButton1 or input.UserInputType == Enum.UserInputType.Touch then
+            dragging = true
+            update(input)
+        end
+    end)
+
+    UserInputService.InputEnded:Connect(function(input)
+        if input.UserInputType == Enum.UserInputType.MouseButton1 or input.UserInputType == Enum.UserInputType.Touch then
+            dragging = false
+        end
+    end)
+
+    UserInputService.InputChanged:Connect(function(input)
+        if dragging and (input.UserInputType == Enum.UserInputType.MouseMovement or input.UserInputType == Enum.UserInputType.Touch) then
+            update(input)
+        end
+    end)
+end
+
+-- TAB 1: VISUAL & MOVEMENT
+
+-- 1. HIỂN THỊ KHUNG FPS
+createToggleBtn("📊 Hiển Thị Khung FPS", visualContent, function(val)
+    state.showFps = val
+    fpsWidget.Visible = val
+end)
+
+-- 2. FIGHTER JET (MÁY BAY CHIẾN ĐẤU - TÁCH TỪ FLYCAM)
+local jetToggleBtn = createToggleBtn("✈️ Fighter Jet (Máy Bay Chiến Đấu)", visualContent, function(val)
+    state.fighterJet = val
+    if val then
+        if state.flyCam and disableFlyCam then disableFlyCam() end -- Tắt Flycam nếu đang bật
+        
+        quickTpBtn.Visible = true
+        jetCrosshair.Visible = true -- Hiện tâm máy bay
+        jetCFrame = camera.CFrame
+        local rx, ry, rz = jetCFrame:ToOrientation()
+        jetRotX, jetRotY = rx, ry
+        camera.CameraType = Enum.CameraType.Scriptable
+        if isMobile then mobileControls.Visible = true end
+
+        jetInputConnection = UserInputService.InputBegan:Connect(function(input, gpe)
+            if input.UserInputType == Enum.UserInputType.MouseButton2 then
+                isRightMouseDown = true
+                lastTouchPos = UserInputService:GetMouseLocation()
+            elseif input.UserInputType == Enum.UserInputType.Touch then
+                lastTouchPos = input.Position
+            end
+        end)
+        
+        UserInputService.InputEnded:Connect(function(input)
+            if input.UserInputType == Enum.UserInputType.MouseButton2 then isRightMouseDown = false end
+        end)
+        
+        UserInputService.TouchMoved:Connect(function(touch, gpe)
+            if gpe then return end
+            local delta = touch.Position - lastTouchPos
+            lastTouchPos = touch.Position
+            jetRotY = jetRotY - math.rad(delta.X * 0.35)
+            jetRotX = math.clamp(jetRotX - math.rad(delta.Y * 0.35), math.rad(-89), math.rad(89))
+        end)
+        
+        jetConnection = RunService.RenderStepped:Connect(function()
+            if isRightMouseDown then
+                local currentPos = UserInputService:GetMouseLocation()
+                local delta = currentPos - lastTouchPos
+                lastTouchPos = currentPos
+                jetRotY = jetRotY - math.rad(delta.X * 0.3)
+                jetRotX = math.clamp(jetRotX - math.rad(delta.Y * 0.3), math.rad(-89), math.rad(89))
+            end
+            
+            local rotMatrix = CFrame.Angles(0, jetRotY, 0) * CFrame.Angles(jetRotX, 0, 0)
+            local moveVector = Vector3.new()
+            
+            if UserInputService:IsKeyDown(Enum.KeyCode.W) or moveState.forward then moveVector = moveVector + rotMatrix.LookVector end
+            if UserInputService:IsKeyDown(Enum.KeyCode.S) or moveState.backward then moveVector = moveVector - rotMatrix.LookVector end
+            if UserInputService:IsKeyDown(Enum.KeyCode.A) or moveState.left then moveVector = moveVector - rotMatrix.RightVector end
+            if UserInputService:IsKeyDown(Enum.KeyCode.D) or moveState.right then moveVector = moveVector + rotMatrix.RightVector end
+            if UserInputService:IsKeyDown(Enum.KeyCode.E) or moveState.up then moveVector = moveVector + Vector3.new(0, 1, 0) end
+            if UserInputService:IsKeyDown(Enum.KeyCode.Q) or moveState.down then moveVector = moveVector - Vector3.new(0, 1, 0) end
+
+            jetCFrame = CFrame.new(jetCFrame.Position + moveVector * jetSpeed) * rotMatrix
+            camera.CFrame = jetCFrame
+        end)
+    else
+        quickTpBtn.Visible = false
+        jetCrosshair.Visible = false -- Ẩn tâm máy bay
+        mobileControls.Visible = false
+        for k in pairs(moveState) do moveState[k] = false end
+        if jetConnection then jetConnection:Disconnect() end
+        if jetInputConnection then jetInputConnection:Disconnect() end
+        local char = player.Character
+        if char and char:FindFirstChild("Humanoid") then
+            camera.CameraType = Enum.CameraType.Custom
+            camera.CameraSubject = char.Humanoid
+        end
+    end
+end)
+
+-- THANH KÉO ĐIỀU CHỈNH TỐC ĐỘ FIGHTER JET (Kéo Lên/Tăng Tốc - Kéo Xuống/Giảm Tốc)
+createSlider("🚀 Tốc Độ Fighter Jet", visualContent, 1, 20, 3, function(val)
+    jetSpeed = val
+end)
+
+disableFighterJet = function()
+    if state.fighterJet then
+        jetToggleBtn.Text = "✈️ Fighter Jet (Máy Bay Chiến Đấu): OFF"
+        jetToggleBtn.TextColor3 = Color3.fromRGB(255, 255, 255)
+        state.fighterJet = false
+        quickTpBtn.Visible = false
+        jetCrosshair.Visible = false
+        mobileControls.Visible = false
+        if jetConnection then jetConnection:Disconnect() end
+        if jetInputConnection then jetInputConnection:Disconnect() end
+        local char = player.Character
+        if char and char:FindFirstChild("Humanoid") then
+            camera.CameraType = Enum.CameraType.Custom
+            camera.CameraSubject = char.Humanoid
+        end
+    end
+end
+
+-- 3. ESP PLAYERS (KHUNG VIỀN HITBOX NHÌN XUYÊN TƯỜNG)
+local function applyEspToPlayer(p)
+    if p == player then return end
+    local function setupChar(char)
+        if not char then return end
+        
+        local highlight = char:FindFirstChild("KLT_ESP_Highlight")
+        if not highlight then
+            highlight = Instance.new("Highlight")
+            highlight.Name = "KLT_ESP_Highlight"
+            highlight.FillColor = Color3.fromRGB(255, 0, 80)
+            highlight.FillTransparency = 0.5
+            highlight.OutlineColor = Color3.fromRGB(0, 255, 200)
+            highlight.OutlineTransparency = 0
+            highlight.DepthMode = Enum.HighlightDepthMode.AlwaysOnTop
+            highlight.Parent = char
+        end
+        highlight.Enabled = state.esp
+
+        local head = char:WaitForChild("Head", 5)
+        if head then
+            local bb = head:FindFirstChild("KLT_ESP_Tag")
+            if not bb then
+                bb = Instance.new("BillboardGui")
+                bb.Name = "KLT_ESP_Tag"
+                bb.Size = UDim2.new(0, 120, 0, 30)
+                bb.StudsOffset = Vector3.new(0, 3, 0)
+                bb.AlwaysOnTop = true
+                bb.Parent = head
+
+                local txt = Instance.new("TextLabel")
+                txt.Size = UDim2.new(1, 0, 1, 0)
+                txt.BackgroundTransparency = 1
+                txt.Text = p.DisplayName
+                txt.TextColor3 = Color3.fromRGB(0, 255, 200)
+                txt.TextStrokeTransparency = 0
+                txt.Font = Enum.Font.SourceSansBold
+                txt.TextSize = 13
+                txt.Parent = bb
+            end
+            bb.Enabled = state.esp
+        end
+    end
+
+    if p.Character then setupChar(p.Character) end
+    p.CharacterAdded:Connect(setupChar)
+end
+
+createToggleBtn("👁️ ESP Players (Khung viền nhìn xuyên tường)", visualContent, function(val)
+    state.esp = val
+    for _, p in ipairs(Players:GetPlayers()) do
+        if p ~= player and p.Character then
+            local hl = p.Character:FindFirstChild("KLT_ESP_Highlight")
+            if hl then hl.Enabled = val end
+            local head = p.Character:FindFirstChild("Head")
+            if head and head:FindFirstChild("KLT_ESP_Tag") then
+                head.KLT_ESP_Tag.Enabled = val
+            end
+            if val and not hl then
+                applyEspToPlayer(p)
+            end
+        end
+    end
+end)
+
+Players.PlayerAdded:Connect(function(p)
+    applyEspToPlayer(p)
+end)
+
+-- 4. NOCLIP (ĐI XUYÊN TƯỜNG)
+createToggleBtn("👻 Noclip (Đi xuyên tường)", visualContent, function(val)
+    state.noclip = val
+end)
+
+-- 5. FULLBRIGHT (NHÌN TRONG BÓNG TỐI)
+createToggleBtn("💡 Nhìn Trong Bóng Tối (Fullbright)", visualContent, function(val)
+    state.fullbright = val
+    if val then
+        Lighting.Ambient = Color3.new(1, 1, 1)
+        Lighting.OutdoorAmbient = Color3.new(1, 1, 1)
+        Lighting.Brightness = 2
+        Lighting.FogEnd = 1e10
+        Lighting.GlobalShadows = false
+    else
+        Lighting.Ambient = originalAmbient
+        Lighting.OutdoorAmbient = originalOutdoorAmbient
+        Lighting.Brightness = originalBrightness
+        Lighting.FogEnd = originalFogEnd
+        Lighting.GlobalShadows = originalGlobalShadows
+    end
+end)
+
+-- 6. FIX LAG / TỐI ƯU HÓA GAME
+createToggleBtn("🚀 Fix Lag (Tối Ưu Hóa Game)", visualContent, function(val)
+    state.fixLag = val
+    if val then
+        Lighting.GlobalShadows = false
+        Lighting.FogEnd = 9e9
+        
+        for _, obj in ipairs(Workspace:GetDescendants()) do
+            if obj:IsA("BasePart") then
+                obj.Material = Enum.Material.SmoothPlastic
+            elseif obj:IsA("ParticleEmitter") or obj:IsA("Trail") or obj:IsA("Smoke") or obj:IsA("Fire") or obj:IsA("Sparkles") then
+                obj.Enabled = false
+            end
+        end
+    end
+end)
+
+createToggleBtn("📦 Đồ Vật Mất Trọng Lực", visualContent, function(val)
+    state.zeroGravityParts = val
+    if not val then
+        for _, obj in ipairs(Workspace:GetDescendants()) do
+            if obj:IsA("BasePart") then
+                local bf = obj:FindFirstChild("PartAntiGravity")
+                if bf then bf:Destroy() end
+            end
+        end
+    end
+end)
+
+local flyCamToggleBtn = createToggleBtn("📷 Flycam (Camera bay)", visualContent, function(val)
+    state.flyCam = val
+    if val then
+        if state.fighterJet and disableFighterJet then disableFighterJet() end -- Tắt Fighter Jet nếu đang bật
+        
+        quickTpBtn.Visible = true
+        camCFrame = camera.CFrame
+        local rx, ry, rz = camCFrame:ToOrientation()
+        rotX, rotY = rx, ry
+        camera.CameraType = Enum.CameraType.Scriptable
+        if isMobile then mobileControls.Visible = true end
+
+        flyCamInputConnection = UserInputService.InputBegan:Connect(function(input, gpe)
+            if input.UserInputType == Enum.UserInputType.MouseButton2 then
+                isRightMouseDown = true
+                lastTouchPos = UserInputService:GetMouseLocation()
+            elseif input.UserInputType == Enum.UserInputType.Touch then
+                lastTouchPos = input.Position
+            end
+        end)
+        
+        UserInputService.InputEnded:Connect(function(input)
+            if input.UserInputType == Enum.UserInputType.MouseButton2 then isRightMouseDown = false end
+        end)
+        
+        UserInputService.TouchMoved:Connect(function(touch, gpe)
+            if gpe then return end
+            local delta = touch.Position - lastTouchPos
+            lastTouchPos = touch.Position
+            rotY = rotY - math.rad(delta.X * 0.35)
+            rotX = math.clamp(rotX - math.rad(delta.Y * 0.35), math.rad(-89), math.rad(89))
+        end)
+        
+        flyCamConnection = RunService.RenderStepped:Connect(function()
+            if isRightMouseDown then
+                local currentPos = UserInputService:GetMouseLocation()
+                local delta = currentPos - lastTouchPos
+                lastTouchPos = currentPos
+                rotY = rotY - math.rad(delta.X * 0.3)
+                rotX = math.clamp(rotX - math.rad(delta.Y * 0.3), math.rad(-89), math.rad(89))
+            end
+            
+            local rotMatrix = CFrame.Angles(0, rotY, 0) * CFrame.Angles(rotX, 0, 0)
+            local moveVector = Vector3.new()
+            
+            if UserInputService:IsKeyDown(Enum.KeyCode.W) or moveState.forward then moveVector = moveVector + rotMatrix.LookVector end
+            if UserInputService:IsKeyDown(Enum.KeyCode.S) or moveState.backward then moveVector = moveVector - rotMatrix.LookVector end
+            if UserInputService:IsKeyDown(Enum.KeyCode.A) or moveState.left then moveVector = moveVector - rotMatrix.RightVector end
+            if UserInputService:IsKeyDown(Enum.KeyCode.D) or moveState.right then moveVector = moveVector + rotMatrix.RightVector end
+            if UserInputService:IsKeyDown(Enum.KeyCode.E) or moveState.up then moveVector = moveVector + Vector3.new(0, 1, 0) end
+            if UserInputService:IsKeyDown(Enum.KeyCode.Q) or moveState.down then moveVector = moveVector - Vector3.new(0, 1, 0) end
+
+            camCFrame = CFrame.new(camCFrame.Position + moveVector * flyCamSpeed) * rotMatrix
+            camera.CFrame = camCFrame
+        end)
+    else
+        quickTpBtn.Visible = false
+        mobileControls.Visible = false
+        for k in pairs(moveState) do moveState[k] = false end
+        if flyCamConnection then flyCamConnection:Disconnect() end
+        if flyCamInputConnection then flyCamInputConnection:Disconnect() end
+        local char = player.Character
+        if char and char:FindFirstChild("Humanoid") then
+            camera.CameraType = Enum.CameraType.Custom
+            camera.CameraSubject = char.Humanoid
+        end
+    end
+end)
+
+disableFlyCam = function()
+    if state.flyCam then
+        flyCamToggleBtn.Text = "📷 Flycam (Camera bay): OFF"
+        flyCamToggleBtn.TextColor3 = Color3.fromRGB(255, 255, 255)
+        state.flyCam = false
+        quickTpBtn.Visible = false
+        mobileControls.Visible = false
+        if flyCamConnection then flyCamConnection:Disconnect() end
+        if flyCamInputConnection then flyCamInputConnection:Disconnect() end
+        local char = player.Character
+        if char and char:FindFirstChild("Humanoid") then
+            camera.CameraType = Enum.CameraType.Custom
+            camera.CameraSubject = char.Humanoid
+        end
+    end
+end
+
+createToggleBtn("⚡ Chạy Nhanh (Speed)", visualContent, function(val)
+    state.speedBoost = val
+    local char = player.Character
+    if char and char:FindFirstChild("Humanoid") then
+        char.Humanoid.WalkSpeed = val and speedValue or 16
+    end
+end)
+
+createSlider("Tốc độ Chạy", visualContent, 16, 300, 50, function(val)
+    speedValue = val
+    if state.speedBoost then
+        local char = player.Character
+        if char and char:FindFirstChild("Humanoid") then
+            char.Humanoid.WalkSpeed = speedValue
+        end
+    end
+end)
+
+createToggleBtn("🦘 Nhảy Cao (Jump)", visualContent, function(val)
+    state.jumpBoost = val
+    local char = player.Character
+    if char and char:FindFirstChild("Humanoid") then
+        char.Humanoid.UseJumpPower = true
+        char.Humanoid.JumpPower = val and jumpValue or 50
+    end
+end)
+
+createSlider("Độ cao Nhảy", visualContent, 50, 300, 100, function(val)
+    jumpValue = val
+    if state.jumpBoost then
+        local char = player.Character
+        if char and char:FindFirstChild("Humanoid") then
+            char.Humanoid.UseJumpPower = true
+            char.Humanoid.JumpPower = jumpValue
+        end
+    end
+end)
+
+createToggleBtn("👁️ FOV 120", visualContent, function(val)
+    state.fov120 = val
+    TweenService:Create(camera, TweenInfo.new(0.3), {FieldOfView = val and 120 or 70}):Play()
+end)
+
+createToggleBtn("☁️ Air Walk Platform", visualContent, function(val) state.airWalk = val end)
+
+-- TAB 2 & 3
+createToggleBtn("🛡️ Anti-Grab (Chống bị cầm)", defenseContent, function(val) state.antiGrab = val end)
+createToggleBtn("🛡️ Chống bị văng", defenseContent, function(val) state.chongBiVang = val end)
+createToggleBtn("🚀 Sky Launch", attackContent, function(val) state.skyLaunch = val end)
+createToggleBtn("🧲 Auto Grab", attackContent, function(val) state.autoGrab = val end)
+
+-- PHYSICS & LOOP LOGIC
+RunService.Stepped:Connect(function()
+    local char = player.Character
+    if char then
+        -- NOCLIP (ĐI XUYÊN TƯỜNG)
+        if state.noclip then
+            for _, part in ipairs(char:GetDescendants()) do
+                if part:IsA("BasePart") and part.CanCollide then
+                    part.CanCollide = false
+                end
+            end
+        end
+
+        local hum = char:FindFirstChild("Humanoid")
+        if hum then
+            if state.speedBoost and hum.WalkSpeed ~= speedValue then hum.WalkSpeed = speedValue end
+            if state.jumpBoost then
+                hum.UseJumpPower = true
+                if hum.JumpPower ~= jumpValue then hum.JumpPower = jumpValue end
+            end
+        end
+
+        -- ANTI-GRAB LOGIC
+        if state.antiGrab then
+            if hum then
+                if hum.Sit then hum.Sit = false end
+                if hum.PlatformStand then hum.PlatformStand = false end
+            end
+
+            for _, obj in ipairs(char:GetDescendants()) do
+                if obj:IsA("JointInstance") or obj:IsA("Weld") or obj:IsA("WeldConstraint") or obj:IsA("RopeConstraint") or obj:IsA("Motor6D") or obj:IsA("SpringConstraint") then
+                    if obj.Part0 and obj.Part1 then
+                        local p0Char = obj.Part0:FindFirstAncestorOfClass("Model")
+                        local p1Char = obj.Part1:FindFirstAncestorOfClass("Model")
+                        if (p0Char and p0Char ~= char) or (p1Char and p1Char ~= char) then
+                            obj:Destroy()
+                        end
+                    end
+                elseif obj:IsA("BodyMover") or obj:IsA("AlignPosition") or obj:IsA("LinearVelocity") or obj:IsA("VectorForce") then
+                    if obj.Name ~= "AirWalkForce" then 
+                        obj:Destroy() 
+                    end
+                end
+            end
+        end
+    end
+end)
+
+RunService.Heartbeat:Connect(function()
+    local char = player.Character
+    if not char or not char:FindFirstChild("HumanoidRootPart") then return end
+    local myHrp = char.HumanoidRootPart
+
+    if state.chongBiVang then
+        if myHrp.AssemblyLinearVelocity.Magnitude > 200 then
+            myHrp.AssemblyLinearVelocity = Vector3.new(0, myHrp.AssemblyLinearVelocity.Y, 0)
+        end
+        if myHrp.AssemblyAngularVelocity.Magnitude > 100 then
+            myHrp.AssemblyAngularVelocity = Vector3.new(0, 0, 0)
+        end
+    end
+
+    if state.skyLaunch then
+        for _, targetPlayer in ipairs(Players:GetPlayers()) do
+            if targetPlayer ~= player and targetPlayer.Character then
+                local tChar = targetPlayer.Character
+                local tHrp = tChar:FindFirstChild("HumanoidRootPart") or tChar.PrimaryPart
+                if tHrp and (tHrp.Position - myHrp.Position).Magnitude <= 15 then
+                    tHrp.AssemblyLinearVelocity = Vector3.new(0, 3000, 0)
+                    tHrp.AssemblyAngularVelocity = Vector3.new(500, 500, 500)
+                end
+            end
+        end
+    end
+end)
+
+task.spawn(function()
+    while true do
+        task.wait(0.05)
+        local char = player.Character
+        if char and char:FindFirstChild("HumanoidRootPart") then
+            local myHrp = char.HumanoidRootPart
+
+            if state.airWalk then
+                if not airPlatform or not airPlatform.Parent then
+                    airPlatform = Instance.new("Part")
+                    airPlatform.Size = Vector3.new(6, 1, 6)
+                    airPlatform.Anchored = true
+                    airPlatform.CanCollide = true
+                    airPlatform.CanQuery = false
+                    airPlatform.Material = Enum.Material.Neon
+                    airPlatform.Color = Color3.fromRGB(0, 255, 200)
+                    airPlatform.Transparency = 0.5
+                    airPlatform.Parent = Workspace
+                end
+                airPlatform.CFrame = CFrame.new(myHrp.Position.X, myHrp.Position.Y - 3.5, myHrp.Position.Z)
+            elseif airPlatform then
+                airPlatform:Destroy()
+                airPlatform = nil
+            end
+
+            if state.autoGrab then
+                for _, target in ipairs(Players:GetPlayers()) do
+                    if target ~= player and target.Character and target.Character:FindFirstChild("HumanoidRootPart") then
+                        local tHrp = target.Character.HumanoidRootPart
+                        if (tHrp.Position - myHrp.Position).Magnitude < 15 then
+                            tHrp.CFrame = myHrp.CFrame * CFrame.new(0, 0, -3)
+                        end
+                    end
+                end
+            end
+        end
+    end
+end)
+
+-- TAB PLAYERS
+local function updatePlayerList()
+    for _, child in ipairs(playerContent:GetChildren()) do
+        if child:IsA("Frame") then child:Destroy() end
+    end
+    
+    for _, targetPlayer in ipairs(Players:GetPlayers()) do
+        if targetPlayer ~= player then
+            local itemFrame = Instance.new("Frame")
+            itemFrame.Size = UDim2.new(1, -5, 0, 36)
+            itemFrame.BackgroundColor3 = Color3.fromRGB(25, 25, 35)
+            itemFrame.BackgroundTransparency = 0.4
+            itemFrame.Parent = playerContent
+            local itemCorner = Instance.new("UICorner") itemCorner.CornerRadius = UDim.new(0, 6) itemCorner.Parent = itemFrame
+            
+            local avatarImg = Instance.new("ImageLabel")
+            avatarImg.Size = UDim2.new(0, 28, 0, 28)
+            avatarImg.Position = UDim2.new(0, 4, 0, 4)
+            avatarImg.BackgroundTransparency = 1
+            avatarImg.Parent = itemFrame
+            local imgCorner = Instance.new("UICorner") imgCorner.CornerRadius = UDim.new(1, 0) imgCorner.Parent = avatarImg
+            
+            task.spawn(function()
+                local content, isReady = Players:GetUserThumbnailAsync(targetPlayer.UserId, Enum.ThumbnailType.HeadShot, Enum.ThumbnailSize.Size100x100)
+                if isReady then avatarImg.Image = content end
+            end)
+            
+            local tpBtn = Instance.new("TextButton")
+            tpBtn.Size = UDim2.new(1, -40, 1, 0)
+            tpBtn.Position = UDim2.new(0, 38, 0, 0)
+            tpBtn.BackgroundTransparency = 1
+            tpBtn.TextColor3 = Color3.fromRGB(255, 255, 255)
+            tpBtn.Text = targetPlayer.DisplayName .. " (@" .. targetPlayer.Name .. ")"
+            tpBtn.Font = Enum.Font.SourceSansBold
+            tpBtn.TextSize = 11
+            tpBtn.TextXAlignment = Enum.TextXAlignment.Left
+            tpBtn.Parent = itemFrame
+            
+            tpBtn.MouseButton1Click:Connect(function()
+                local myChar = player.Character
+                local targetChar = targetPlayer.Character
+                if myChar and targetChar and myChar:FindFirstChild("HumanoidRootPart") and targetChar:FindFirstChild("HumanoidRootPart") then
+                    myChar.HumanoidRootPart.CFrame = targetChar.HumanoidRootPart.CFrame * CFrame.new(0, 0, 3)
+                end
+            end)
+        end
+    end
+end
+
+playersTabBtn.MouseButton1Click:Connect(function()
+    switchTab(playerContent, playersTabBtn)
+    updatePlayerList()
+end)
+
+Players.PlayerAdded:Connect(updatePlayerList)
+Players.PlayerRemoving:Connect(updatePlayerList)
